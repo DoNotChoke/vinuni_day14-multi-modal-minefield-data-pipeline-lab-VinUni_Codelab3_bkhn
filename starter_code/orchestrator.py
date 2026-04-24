@@ -39,10 +39,40 @@ def main():
     # TODO: Run quality gates (run_quality_gate) before adding to final_kb
     # TODO: Save final_kb to output_path using json.dump
     
-    # Example:
-    # doc = extract_pdf_data(pdf_path)
-    # if doc and run_quality_gate(doc):
-    #     final_kb.append(doc)
+    try:
+        doc = extract_pdf_data(pdf_path)
+        if doc and run_quality_gate(doc):
+            final_kb.append(doc)
+    except Exception as e:
+        print(f"Error processing PDF: {e}")
+
+    try:
+        doc = clean_transcript(trans_path)
+        if doc and run_quality_gate(doc):
+            final_kb.append(doc)
+    except Exception as e:
+        print(f"Error processing transcript: {e}")
+
+    try:
+        doc = parse_html_catalog(html_path)
+        if doc and run_quality_gate(doc):
+            final_kb.append(doc)
+    except Exception as e:
+        print(f"Error processing HTML: {e}")
+
+    try:
+        doc = process_sales_csv(csv_path)
+        if doc and run_quality_gate(doc):
+            final_kb.append(doc)
+    except Exception as e:
+        print(f"Error processing CSV: {e}")
+
+    try:
+        doc = extract_logic_from_code(code_path)
+        if doc and run_quality_gate(doc):
+            final_kb.append(doc)
+    except Exception as e:
+        print(f"Error processing code: {e}")
 
     end_time = time.time()
     print(f"Pipeline finished in {end_time - start_time:.2f} seconds.")
