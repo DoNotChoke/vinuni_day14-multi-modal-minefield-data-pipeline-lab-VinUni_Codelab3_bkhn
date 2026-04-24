@@ -1,50 +1,102 @@
-import google.generativeai as genai
-import os
 import json
+import os
+
+import google.generativeai as genai
 from dotenv import load_dotenv
 
+from schema import UnifiedDocument
+
 load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+
+def _strip_markdown_fence(text):
+    cleaned = text.strip()
+    if cleaned.startswith("```json"):
+        cleaned = cleaned[7:]
+    elif cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+
+    return cleaned.strip()
+
 
 def extract_pdf_data(file_path):
     if not os.path.exists(file_path):
         print(f"Error: File not found at {file_path}")
         return None
-        
-    # Thay đổi model name để tránh lỗi 404 trên các phiên bản API cũ
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        print("Error: GEMINI_API_KEY is not set.")
+        return None
+
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-2.5-flash")
+
     print(f"Uploading {file_path} to Gemini...")
     try:
         pdf_file = genai.upload_file(path=file_path)
-    except Exception as e:
-        print(f"Failed to upload file to Gemini: {e}")
+    except Exception as exc:
+        print(f"Failed to upload file to Gemini: {exc}")
         return None
-        
-    prompt = """
-Analyze this document and extract a summary and the author. 
-Output exactly as a JSON object matching this exact format:
-{
-    "document_id": "pdf-doc-001",
-    "content": "Summary: [Insert your 3-sentence summary here]",
-    "source_type": "PDF",
-    "author": "[Insert author name here]",
-    "timestamp": null,
-    "source_metadata": {"original_file": "lecture_notes.pdf"}
-}
+
+    prompt = f"""
+Analyze this PDF and return exactly one JSON object.
+
+Requirements:
+- Write a concise 3-sentence summary in the `content` field.
+- Extract the best available author name. Use "Unknown" if not found.
+- Keep `source_type` exactly as "PDF".
+- Keep `timestamp` as null unless the PDF clearly provides a publication timestamp in ISO 8601 format.
+- Include the original filename in `source_metadata.original_file`.
+
+Return JSON matching this schema exactly:
+{{
+  "document_id": "pdf-doc-001",
+  "content": "Summary: ...",
+  "source_type": "PDF",
+  "author": "Unknown",
+  "timestamp": null,
+  "source_metadata": {{
+    "original_file": "{os.path.basename(file_path)}"
+  }}
+}}
 """
-    
+
     print("Generating content from PDF using Gemini...")
-    response = model.generate_content([pdf_file, prompt])
-    content_text = response.text
-    
-    # Simple cleanup if the response is wrapped in markdown json block
-    if content_text.startswith("```json"):
-        content_text = content_text[7:]
-    if content_text.endswith("```"):
-        content_text = content_text[:-3]
-    if content_text.startswith("```"):
-        content_text = content_text[3:]
-        
-    extracted_data = json.loads(content_text.strip())
-    return extracted_data
+    try:
+        response = model.generate_content([pdf_file, prompt])
+        raw_text = getattr(response, "text", "") or ""
+    except Exception as exc:
+        print(f"Failed to generate content from PDF: {exc}")
+        return None
+
+    if not raw_text.strip():
+        print("Gemini returned an empty response.")
+        return None
+
+    try:
+        extracted_data = json.loads(_strip_markdown_fence(raw_text))
+    except json.JSONDecodeError as exc:
+        print(f"Failed to parse Gemini response as JSON: {exc}")
+        return None
+
+    extracted_data["document_id"] = extracted_data.get("document_id") or "pdf-doc-001"
+    extracted_data["source_type"] = "PDF"
+    extracted_data["author"] = extracted_data.get("author") or "Unknown"
+    extracted_data["source_metadata"] = {
+        "original_file": os.path.basename(file_path),
+        **(extracted_data.get("source_metadata") or {}),
+    }
+
+    try:
+        document = UnifiedDocument(**extracted_data)
+    except Exception as exc:
+        print(f"Gemini response did not match UnifiedDocument: {exc}")
+        return None
+
+    if hasattr(document, "model_dump"):
+        return document.model_dump(mode="json")
+    return json.loads(document.json())
