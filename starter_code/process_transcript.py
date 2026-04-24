@@ -9,12 +9,21 @@ def clean_transcript(file_path):
     # --- FILE READING (Handled for students) ---
     with open(file_path, 'r', encoding='utf-8') as f:
         text = f.read()
-    # ------------------------------------------
+    cleaned_text = re.sub(r'\[Music\]|\[inaudible\]|\[Laughter\]', '', text)
+    cleaned_text = re.sub(r'\[\d{1,2}:\d{2}(:\d{2})?\]', '', cleaned_text)
+    cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
     
-    # TODO: Remove noise tokens like [Music], [inaudible], [Laughter]
-    # TODO: Strip timestamps [00:00:00]
-    # TODO: Find the price mentioned in Vietnamese words ("năm trăm nghìn")
-    # TODO: Return a cleaned dictionary for the UnifiedDocument schema.
+    price_pattern = r'\b(\w+\s)+(đồng|nghìn|ngàn|triệu|tỷ)\b'
+    price_match = re.search(price_pattern, cleaned_text, re.IGNORECASE)
     
-    return {}
-
+    extracted_price = price_match.group(0) if price_match else "Not found"
+    
+    return {
+        "original_source": file_path,
+        "clean_content": cleaned_text,
+        "metadata": {
+            "extracted_price": extracted_price,
+            "language": "vi",
+            "status": "processed"
+        }
+    }
